@@ -13,9 +13,12 @@ class ViewController: UIViewController {
     //
     var animator : UIViewPropertyAnimator!
     var animationDuration : TimeInterval = 3
+    var progressWhenPaused : CGFloat = 0
     // Make theView a viewController property
     var theView : UIView!
-
+    
+    var isInterrupted : Bool = false
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -46,7 +49,12 @@ extension ViewController{
             self.theView.transform = CGAffineTransform(translationX: self.view.bounds.width - self.theView.bounds.width, y: 0)
             self.theView.alpha = 0.2
         }
-  
+        
+        animator.addCompletion { (position) in
+            print("I am completed aha")
+        }
+        
+        animator.addObserver(self, forKeyPath: #keyPath(UIViewPropertyAnimator.fractionComplete), options: [.new], context: nil)
     }
 }
 
@@ -69,21 +77,15 @@ extension ViewController{
         // Add a pangesture to the View
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(pan(_:)))
         theView.addGestureRecognizer(panGesture)
-
+        
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(tap(_:)))
+        theView.addGestureRecognizer(tapGesture)
+        
     }
     
     @objc
     private func tap(_ tapGesture : UITapGestureRecognizer){
-        guard let animator = animator else{
-            return
-        }
-        if animator.isRunning == true{
-            animator.stopAnimation(false)
-            animator.finishAnimation(at: .end)
-            let timeingParameter = UICubicTimingParameters(animationCurve: .linear)
-            self.animator = UIViewPropertyAnimator(duration: animationDuration, timingParameters: timeingParameter)
-            print("let me see the state aha = \(animator.state.rawValue)")
-        }
+        interruptAnimation()
     }
     
     
@@ -91,21 +93,33 @@ extension ViewController{
     private func pan(_ panGesture : UIPanGestureRecognizer){
         switch panGesture.state{
         case .began:
-            // You will see alot examples of creating the animator here.
-            // But to create a more complex animator, it is often a good item
-            // to implement the animtor outside of gesture
-            break
+            // interrupt the animation if we detect
+            // a start of a pan gesture
+            interruptAnimation()
+            
         case .changed:
-            // When we pan back and forth on the screen,
-            // we update the fractionComplete to give the visual effect
-            // that we are moving the blue box
+            // set the interrupted back to false
+            isInterrupted = false
             let direction : CGFloat = animator.isReversed ? -1 : 1
-            animator.fractionComplete = direction * (panGesture.translation(in: view).x / view.bounds.width)
+            
+            // set the animator.fractionComplete
+            animator.fractionComplete = direction * (panGesture.translation(in: view).x / view.bounds.width + direction * (progressWhenPaused))
         case .ended:
             // When we lift the finger, we continue the animation
             animator.continueAnimation(withTimingParameters: nil, durationFactor: 0)
         default:
             break
+        }
+    }
+    
+    private func interruptAnimation(){
+        guard let animator = animator else{
+            return
+        }
+        if animator.isRunning == true{
+            isInterrupted = true
+            animator.pauseAnimation()
+            progressWhenPaused = animator.fractionComplete
         }
     }
 }
@@ -114,10 +128,13 @@ extension ViewController{
 extension ViewController{
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
         if keyPath == #keyPath(UIViewPropertyAnimator.isRunning){
-            print("let me see if the thing is paused = \(!animator.isRunning)")
-            // If the animator is paused
-            if !animator.isRunning{
+            
+            if !animator.isRunning && !isInterrupted{
+                // If the animator is completed, we reverse
+                // the animation and set progressWhenPaused back to
+                // zero
                 animator.isReversed = !animator.isReversed
+                progressWhenPaused = 0
             }
         }
     }
